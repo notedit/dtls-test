@@ -60,6 +60,12 @@ type DTLSConnection struct {
 	x509Cert   *x509.Certificate
 }
 
+func (d *DTLSConnection) Init() {
+
+	d.inConn, d.outConn = net.Pipe()
+	d.GenerateCertificate()
+}
+
 func (d *DTLSConnection) GenerateCertificate() {
 
 	secretKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -123,14 +129,13 @@ func (d *DTLSConnection) Start() (err error) {
 		InsecureSkipVerify:     true,
 	}
 
-	d.inConn, d.outConn = net.Pipe()
 	dtlsConn, err = dtls.Server(d.inConn, dtlsConfig)
 	d.conn = dtlsConn
 
-	srtpProfile, ok := dtlsConn.SelectedSRTPProtectionProfile()
-	if !ok {
-		fmt.Println("error :", srtpProfile)
+	if err != nil {
+		fmt.Println("error : ", err)
 	}
+
 	return
 }
 
@@ -145,11 +150,14 @@ func main() {
 	}
 
 	dtlsConn := new(DTLSConnection)
-	dtlsConn.GenerateCertificate()
-	err = dtlsConn.Start()
-	if err != nil {
-		panic(err)
-	}
+	dtlsConn.Init()
+
+	go func() {
+		err = dtlsConn.Start()
+		if err != nil {
+			panic(err)
+		}
+	}()
 
 	buffers := make(chan []byte, 10)
 
@@ -172,6 +180,7 @@ func main() {
 			break
 		}
 
+		fmt.Println("read bytes ", n)
 		dtlsConn.outConn.Write(buffer[:n])
 
 		select {
